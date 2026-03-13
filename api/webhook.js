@@ -88,7 +88,7 @@ async function handleEvent(event) {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `「${query}」に該当するベンダーが見つかりませんでした。\nスプレッドシートに登録されているベンダー名で検索してください。`,
+            text: `「${query}」……該当するベンダーは見つからなかった。\n正確な名前で頼む。`,
           },
         ]);
         return;
@@ -97,7 +97,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `【${vendor.name}】\nID: ${vendor.id}\nPASS: ${vendor.pass}`,
+          text: `【${vendor.name}】\nID: ${vendor.id}\nPASS: ${vendor.pass}\n\n取り扱いには気をつけろ。`,
         },
       ]);
     } catch (err) {
@@ -105,7 +105,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `エラーが発生しました: ${err.message}`,
+          text: `障害が発生した。……よくあることだ。\n${err.message}`,
         },
       ]);
     }
@@ -127,7 +127,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: "ベンダー名を指定してください。\n例: @M.Kusanagi アマゾン",
+          text: "ベンダー名を言え。\n例: @M.Kusanagi アマゾン",
         },
       ]);
       return;
@@ -140,7 +140,7 @@ async function handleEvent(event) {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `「${query}」に該当するベンダーが見つかりませんでした。`,
+            text: `「${query}」……該当なしだ。名前を確認しろ。`,
           },
         ]);
         return;
@@ -149,7 +149,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `【${vendor.name}】\nID: ${vendor.id}\n\n※パスワードは個人チャットに送信しました。`,
+          text: `【${vendor.name}】\nID: ${vendor.id}\n\nパスワードは個別に送った。ここでは晒さない。`,
         },
       ]);
 
@@ -157,7 +157,7 @@ async function handleEvent(event) {
         await pushMessage(source.userId, [
           {
             type: "text",
-            text: `【${vendor.name}】のパスワード\nPASS: ${vendor.pass}`,
+            text: `【${vendor.name}】\nPASS: ${vendor.pass}\n\n漏らすなよ。`,
           },
         ]);
       }
@@ -166,7 +166,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `エラーが発生しました: ${err.message}`,
+          text: `障害が発生した。……よくあることだ。\n${err.message}`,
         },
       ]);
     }
