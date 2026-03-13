@@ -21,19 +21,34 @@ async function getBotUserId() {
   return botUserId;
 }
 
-// 複数件のID一覧テキストを生成
-function formatIdList(vendors) {
+// 施設ごとにまとめた一覧テキストを生成（DM用: ID+PASS両方表示）
+function formatVendorList(vendors) {
   return vendors
     .map((v) => {
       const label = v.facility ? `${v.vendor}（${v.facility}）` : v.vendor;
-      let text = `${label}\n  ID: ${v.id}`;
+      let text = label;
+      text += `\n  ID: ${v.id}`;
+      text += `\n  PASS: ${v.pass}`;
       if (v.url) text += `\n  URL: ${v.url}`;
       return text;
     })
     .join("\n\n");
 }
 
-// 複数件のPASS一覧テキストを生成
+// 施設ごとにまとめた一覧テキストを生成（グループ用: IDのみ）
+function formatVendorListPublic(vendors) {
+  return vendors
+    .map((v) => {
+      const label = v.facility ? `${v.vendor}（${v.facility}）` : v.vendor;
+      let text = label;
+      text += `\n  ID: ${v.id}`;
+      if (v.url) text += `\n  URL: ${v.url}`;
+      return text;
+    })
+    .join("\n\n");
+}
+
+// PASS一覧（グループ用: DMで送る）
 function formatPassList(vendors) {
   return vendors
     .map((v) => {
@@ -117,7 +132,7 @@ async function handleEvent(event) {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `${formatIdList(result.vendors)}\n\n${formatPassList(result.vendors)}\n\n取り扱いには気をつけろ。`,
+            text: `${formatVendorList(result.vendors)}\n\n取り扱いには気をつけろ。`,
           },
         ]);
       } else if (result.type === "knowledge") {
@@ -172,7 +187,7 @@ async function handleEvent(event) {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `${formatIdList(result.vendors)}\n\nパスワードは個別に送った。ここでは晒さない。`,
+            text: `${formatVendorListPublic(result.vendors)}\n\nパスワードは個別に送った。ここでは晒さない。`,
           },
         ]);
 
