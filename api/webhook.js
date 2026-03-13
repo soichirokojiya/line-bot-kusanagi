@@ -1,6 +1,22 @@
 const { validateSignature, replyMessage, pushMessage, getBotProfile } = require("../lib/line");
 const { findVendor } = require("../lib/sheets");
 
+// raw bodyを取得するためbody parserを無効化
+module.exports.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+function getRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 // BotのユーザーIDをキャッシュ
 let botUserId = null;
 
@@ -13,16 +29,13 @@ async function getBotUserId() {
 
 // メッセージからメンション後のテキストを抽出
 function extractQuery(text, mentionees) {
-  // メンション部分を除去してクエリを取得
   let query = text;
   if (mentionees && mentionees.length > 0) {
-    // メンションを除去
     const sorted = [...mentionees].sort((a, b) => b.index - a.index);
     for (const m of sorted) {
       query = query.slice(0, m.index) + query.slice(m.index + m.length);
     }
   }
-  // 余分な空白・改行を除去
   return query.replace(/\s+/g, " ").trim();
 }
 
@@ -35,15 +48,21 @@ module.exports = async function handler(req, res) {
     return res.status(405).end();
   }
 
-  // 署名検証
+  // raw bodyで署名検証
+  const rawBody = await getRawBody(req);
   const signature = req.headers["x-line-signature"];
-  const body = JSON.stringify(req.body);
 
-  if (!validateSignature(body, signature)) {
+  if (!validateSignature(rawBody, signature)) {
     return res.status(403).json({ error: "Invalid signature" });
   }
 
-  const events = req.body.events || [];
+  const body = JSON.parse(rawBody);
+  const events = body.events || [];
+
+  // 検証リクエスト（events空）は即座にOK返却
+  if (events.length === 0) {
+    return res.status(200).json({ status: "ok" });
+  }
 
   for (const event of events) {
     try {
@@ -56,8 +75,13 @@ module.exports = async function handler(req, res) {
   return res.status(200).json({ status: "ok" });
 };
 
+module.exports.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 async function handleEvent(event) {
-  // テキストメッセージのみ処理
   if (event.type !== "message" || event.message.type !== "text") return;
 
   const { source, message, replyToken } = event;
@@ -71,7 +95,6 @@ async function handleEvent(event) {
     const isMentioned = mention.mentionees.some((m) => m.userId === myUserId);
     if (!isMentioned) return;
 
-    // クエリ抽出
     const query = extractQuery(message.text, message.mention.mentionees);
 
     if (!query) {
@@ -84,7 +107,6 @@ async function handleEvent(event) {
       return;
     }
 
-    // スプレッドシート検索
     const vendor = await findVendor(query);
 
     if (!vendor) {
@@ -114,12 +136,11 @@ async function handleEvent(event) {
         },
       ]);
     } else {
-      // ユーザーIDが取得できない場合（友だち未追加など）
       console.warn("Cannot push password: userId not available");
     }
   }
 
-  // 1対1チャットの場合: そのまま応答
+  // 1対1チャットの場合
   if (source.type === "user") {
     const query = message.text.trim();
 
