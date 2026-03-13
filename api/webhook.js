@@ -1,5 +1,5 @@
 const { validateSignature, replyMessage, pushMessage, getBotProfile } = require("../lib/line");
-const { findVendor } = require("../lib/sheets");
+const { findVendors } = require("../lib/sheets");
 
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -32,6 +32,26 @@ function extractQuery(text, mentionees) {
   return query.replace(/\s+/g, " ").trim();
 }
 
+// 複数件のID一覧テキストを生成
+function formatIdList(vendors) {
+  return vendors
+    .map((v) => {
+      const label = v.facility ? `${v.vendor}（${v.facility}）` : v.vendor;
+      return `${label}\n  ID: ${v.id}`;
+    })
+    .join("\n\n");
+}
+
+// 複数件のPASS一覧テキストを生成
+function formatPassList(vendors) {
+  return vendors
+    .map((v) => {
+      const label = v.facility ? `${v.vendor}（${v.facility}）` : v.vendor;
+      return `${label}\n  PASS: ${v.pass}`;
+    })
+    .join("\n\n");
+}
+
 async function handler(req, res) {
   if (req.method === "GET") {
     return res.status(200).json({ status: "ok", bot: "M.Kusanagi" });
@@ -42,7 +62,6 @@ async function handler(req, res) {
   }
 
   try {
-    // raw bodyで署名検証
     const rawBody = await getRawBody(req);
     const signature = req.headers["x-line-signature"];
 
@@ -82,9 +101,9 @@ async function handleEvent(event) {
     const query = message.text.trim();
 
     try {
-      const vendor = await findVendor(query);
+      const vendors = await findVendors(query);
 
-      if (!vendor) {
+      if (vendors.length === 0) {
         await replyMessage(replyToken, [
           {
             type: "text",
@@ -97,7 +116,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `【${vendor.name}】\nID: ${vendor.id}\nPASS: ${vendor.pass}\n\n取り扱いには気をつけろ。`,
+          text: `${formatIdList(vendors)}\n\n${formatPassList(vendors)}\n\n取り扱いには気をつけろ。`,
         },
       ]);
     } catch (err) {
@@ -134,9 +153,9 @@ async function handleEvent(event) {
     }
 
     try {
-      const vendor = await findVendor(query);
+      const vendors = await findVendors(query);
 
-      if (!vendor) {
+      if (vendors.length === 0) {
         await replyMessage(replyToken, [
           {
             type: "text",
@@ -149,7 +168,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `【${vendor.name}】\nID: ${vendor.id}\n\nパスワードは個別に送った。ここでは晒さない。`,
+          text: `${formatIdList(vendors)}\n\nパスワードは個別に送った。ここでは晒さない。`,
         },
       ]);
 
@@ -157,7 +176,7 @@ async function handleEvent(event) {
         await pushMessage(source.userId, [
           {
             type: "text",
-            text: `【${vendor.name}】\nPASS: ${vendor.pass}\n\n漏らすなよ。`,
+            text: `${formatPassList(vendors)}\n\n漏らすなよ。`,
           },
         ]);
       }
@@ -173,7 +192,6 @@ async function handleEvent(event) {
   }
 }
 
-// body parserを無効化（raw bodyで署名検証するため）
 handler.config = {
   api: {
     bodyParser: false,
