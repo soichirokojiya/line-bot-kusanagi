@@ -37,7 +37,9 @@ function formatIdList(vendors) {
   return vendors
     .map((v) => {
       const label = v.facility ? `${v.vendor}（${v.facility}）` : v.vendor;
-      return `${label}\n  ID: ${v.id}`;
+      let text = `${label}\n  ID: ${v.id}`;
+      if (v.url) text += `\n  URL: ${v.url}`;
+      return text;
     })
     .join("\n\n");
 }
