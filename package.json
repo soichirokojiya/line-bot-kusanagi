@@ -1,0 +1,12 @@
+{
+  "name": "line-bot-kusanagi",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^9.6.0",
+    "googleapis": "^144.0.0"
+  }
+}
