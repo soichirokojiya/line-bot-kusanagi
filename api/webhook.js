@@ -133,22 +133,19 @@ async function handleEvent(event) {
     return;
   }
 
-  // グループの場合: メンションされたときだけ反応
+  // グループの場合: 「草薙」で始まるメッセージに反応
   if (source.type === "group") {
-    const mention = message.mention;
-    if (!mention || !mention.mentionees) return;
+    const text = message.text.trim();
+    const trigger = /^草薙\s*/i;
+    if (!trigger.test(text)) return;
 
-    const myUserId = await getBotUserId();
-    const isMentioned = mention.mentionees.some((m) => m.userId === myUserId);
-    if (!isMentioned) return;
-
-    const query = extractQuery(message.text, message.mention.mentionees);
+    const query = text.replace(trigger, "").trim();
 
     if (!query) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: "ベンダー名を言え。\n例: @M.Kusanagi アマゾン",
+          text: "ベンダー名を言え。\n例: 草薙 アマゾン",
         },
       ]);
       return;
