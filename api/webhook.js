@@ -1,13 +1,6 @@
 const { validateSignature, replyMessage, pushMessage, getBotProfile } = require("../lib/line");
 const { findVendor } = require("../lib/sheets");
 
-// raw bodyを取得するためbody parserを無効化
-module.exports.config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -39,7 +32,7 @@ function extractQuery(text, mentionees) {
   return query.replace(/\s+/g, " ").trim();
 }
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method === "GET") {
     return res.status(200).json({ status: "ok", bot: "M.Kusanagi" });
   }
@@ -48,50 +41,83 @@ module.exports = async function handler(req, res) {
     return res.status(405).end();
   }
 
-  // raw bodyで署名検証
-  const rawBody = await getRawBody(req);
-  const signature = req.headers["x-line-signature"];
+  try {
+    // raw bodyで署名検証
+    const rawBody = await getRawBody(req);
+    const signature = req.headers["x-line-signature"];
 
-  if (!validateSignature(rawBody, signature)) {
-    return res.status(403).json({ error: "Invalid signature" });
-  }
-
-  const body = JSON.parse(rawBody);
-  const events = body.events || [];
-
-  // 検証リクエスト（events空）は即座にOK返却
-  if (events.length === 0) {
-    return res.status(200).json({ status: "ok" });
-  }
-
-  for (const event of events) {
-    try {
-      await handleEvent(event);
-    } catch (err) {
-      console.error("Event handling error:", err);
+    if (!validateSignature(rawBody, signature)) {
+      return res.status(403).json({ error: "Invalid signature" });
     }
+
+    const body = JSON.parse(rawBody);
+    const events = body.events || [];
+
+    if (events.length === 0) {
+      return res.status(200).json({ status: "ok" });
+    }
+
+    for (const event of events) {
+      try {
+        await handleEvent(event);
+      } catch (err) {
+        console.error("Event handling error:", err.message, err.stack);
+      }
+    }
+
+    return res.status(200).json({ status: "ok" });
+  } catch (err) {
+    console.error("Webhook error:", err.message, err.stack);
+    return res.status(500).json({ error: err.message });
   }
-
-  return res.status(200).json({ status: "ok" });
-};
-
-module.exports.config = {
-  api: {
-    bodyParser: false,
-  },
-};
+}
 
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
   const { source, message, replyToken } = event;
-  const myUserId = await getBotUserId();
+
+  // 1対1チャットの場合
+  if (source.type === "user") {
+    const query = message.text.trim();
+
+    try {
+      const vendor = await findVendor(query);
+
+      if (!vendor) {
+        await replyMessage(replyToken, [
+          {
+            type: "text",
+            text: `「${query}」に該当するベンダーが見つかりませんでした。\nスプレッドシートに登録されているベンダー名で検索してください。`,
+          },
+        ]);
+        return;
+      }
+
+      await replyMessage(replyToken, [
+        {
+          type: "text",
+          text: `【${vendor.name}】\nID: ${vendor.id}\nPASS: ${vendor.pass}`,
+        },
+      ]);
+    } catch (err) {
+      console.error("findVendor error:", err.message, err.stack);
+      await replyMessage(replyToken, [
+        {
+          type: "text",
+          text: `エラーが発生しました: ${err.message}`,
+        },
+      ]);
+    }
+    return;
+  }
 
   // グループの場合: メンションされたときだけ反応
   if (source.type === "group") {
     const mention = message.mention;
     if (!mention || !mention.mentionees) return;
 
+    const myUserId = await getBotUserId();
     const isMentioned = mention.mentionees.some((m) => m.userId === myUserId);
     if (!isMentioned) return;
 
@@ -107,60 +133,51 @@ async function handleEvent(event) {
       return;
     }
 
-    const vendor = await findVendor(query);
+    try {
+      const vendor = await findVendor(query);
 
-    if (!vendor) {
+      if (!vendor) {
+        await replyMessage(replyToken, [
+          {
+            type: "text",
+            text: `「${query}」に該当するベンダーが見つかりませんでした。`,
+          },
+        ]);
+        return;
+      }
+
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `「${query}」に該当するベンダーが見つかりませんでした。`,
+          text: `【${vendor.name}】\nID: ${vendor.id}\n\n※パスワードは個人チャットに送信しました。`,
         },
       ]);
-      return;
-    }
 
-    // グループにはIDだけ返信
-    await replyMessage(replyToken, [
-      {
-        type: "text",
-        text: `【${vendor.name}】\nID: ${vendor.id}\n\n※パスワードは個人チャットに送信しました。`,
-      },
-    ]);
-
-    // パスワードは個人チャットにプッシュ
-    if (source.userId) {
-      await pushMessage(source.userId, [
-        {
-          type: "text",
-          text: `【${vendor.name}】のパスワード\nPASS: ${vendor.pass}`,
-        },
-      ]);
-    } else {
-      console.warn("Cannot push password: userId not available");
-    }
-  }
-
-  // 1対1チャットの場合
-  if (source.type === "user") {
-    const query = message.text.trim();
-
-    const vendor = await findVendor(query);
-
-    if (!vendor) {
+      if (source.userId) {
+        await pushMessage(source.userId, [
+          {
+            type: "text",
+            text: `【${vendor.name}】のパスワード\nPASS: ${vendor.pass}`,
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error("Group handler error:", err.message, err.stack);
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: `「${query}」に該当するベンダーが見つかりませんでした。\nスプレッドシートに登録されているベンダー名で検索してください。`,
+          text: `エラーが発生しました: ${err.message}`,
         },
       ]);
-      return;
     }
-
-    await replyMessage(replyToken, [
-      {
-        type: "text",
-        text: `【${vendor.name}】\nID: ${vendor.id}\nPASS: ${vendor.pass}`,
-      },
-    ]);
   }
 }
+
+// body parserを無効化（raw bodyで署名検証するため）
+handler.config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+module.exports = handler;
