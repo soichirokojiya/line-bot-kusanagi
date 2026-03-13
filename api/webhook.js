@@ -1,5 +1,6 @@
 const { validateSignature, replyMessage, pushMessage, getBotProfile } = require("../lib/line");
-const { findVendors } = require("../lib/sheets");
+const { findVendors, searchKnowledge } = require("../lib/sheets");
+const { askClaude } = require("../lib/claude");
 
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -18,18 +19,6 @@ async function getBotUserId() {
   const profile = await getBotProfile();
   botUserId = profile.userId;
   return botUserId;
-}
-
-// メッセージからメンション後のテキストを抽出
-function extractQuery(text, mentionees) {
-  let query = text;
-  if (mentionees && mentionees.length > 0) {
-    const sorted = [...mentionees].sort((a, b) => b.index - a.index);
-    for (const m of sorted) {
-      query = query.slice(0, m.index) + query.slice(m.index + m.length);
-    }
-  }
-  return query.replace(/\s+/g, " ").trim();
 }
 
 // 複数件のID一覧テキストを生成
@@ -52,6 +41,24 @@ function formatPassList(vendors) {
       return `${label}\n  PASS: ${v.pass}`;
     })
     .join("\n\n");
+}
+
+// ベンダー検索 or RAG回答を処理
+async function handleQuery(query) {
+  // まずベンダー検索
+  const vendors = await findVendors(query);
+  if (vendors.length > 0) {
+    return { type: "vendor", vendors };
+  }
+
+  // ベンダーにヒットしなければナレッジ検索 → Claude回答
+  const knowledge = await searchKnowledge(query);
+  if (knowledge.length > 0) {
+    const answer = await askClaude(query, knowledge);
+    return { type: "knowledge", answer };
+  }
+
+  return { type: "none" };
 }
 
 async function handler(req, res) {
@@ -98,31 +105,37 @@ async function handleEvent(event) {
 
   const { source, message, replyToken } = event;
 
-  // 1対1チャットの場合
+  // 1対1チャットの場合: そのまま検索
   if (source.type === "user") {
     const query = message.text.trim();
 
     try {
-      const vendors = await findVendors(query);
+      const result = await handleQuery(query);
 
-      if (vendors.length === 0) {
+      if (result.type === "vendor") {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `「${query}」……該当するベンダーは見つからなかった。\n正確な名前で頼む。`,
+            text: `${formatIdList(result.vendors)}\n\n${formatPassList(result.vendors)}\n\n取り扱いには気をつけろ。`,
           },
         ]);
-        return;
+      } else if (result.type === "knowledge") {
+        await replyMessage(replyToken, [
+          {
+            type: "text",
+            text: result.answer,
+          },
+        ]);
+      } else {
+        await replyMessage(replyToken, [
+          {
+            type: "text",
+            text: `「${query}」……該当する情報は見つからなかった。\n質問を変えてみろ。`,
+          },
+        ]);
       }
-
-      await replyMessage(replyToken, [
-        {
-          type: "text",
-          text: `${formatIdList(vendors)}\n\n${formatPassList(vendors)}\n\n取り扱いには気をつけろ。`,
-        },
-      ]);
     } catch (err) {
-      console.error("findVendor error:", err.message, err.stack);
+      console.error("DM handler error:", err.message, err.stack);
       await replyMessage(replyToken, [
         {
           type: "text",
@@ -133,7 +146,7 @@ async function handleEvent(event) {
     return;
   }
 
-  // グループの場合: 「草薙」で始まるメッセージに反応
+  // グループの場合: 「kusanagi」で始まるメッセージに反応
   if (source.type === "group") {
     const text = message.text.trim();
     const trigger = /^kusanagi\s*/i;
@@ -145,37 +158,43 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: "ベンダー名を言え。\n例: kusanagi アマゾン",
+          text: "用件を言え。\n例: kusanagi アマゾン\n例: kusanagi 有給の申請方法は？",
         },
       ]);
       return;
     }
 
     try {
-      const vendors = await findVendors(query);
+      const result = await handleQuery(query);
 
-      if (vendors.length === 0) {
+      if (result.type === "vendor") {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `「${query}」……該当なしだ。名前を確認しろ。`,
+            text: `${formatIdList(result.vendors)}\n\nパスワードは個別に送った。ここでは晒さない。`,
           },
         ]);
-        return;
-      }
 
-      await replyMessage(replyToken, [
-        {
-          type: "text",
-          text: `${formatIdList(vendors)}\n\nパスワードは個別に送った。ここでは晒さない。`,
-        },
-      ]);
-
-      if (source.userId) {
-        await pushMessage(source.userId, [
+        if (source.userId) {
+          await pushMessage(source.userId, [
+            {
+              type: "text",
+              text: `${formatPassList(result.vendors)}\n\n漏らすなよ。`,
+            },
+          ]);
+        }
+      } else if (result.type === "knowledge") {
+        await replyMessage(replyToken, [
           {
             type: "text",
-            text: `${formatPassList(vendors)}\n\n漏らすなよ。`,
+            text: result.answer,
+          },
+        ]);
+      } else {
+        await replyMessage(replyToken, [
+          {
+            type: "text",
+            text: `「${query}」……該当する情報はない。質問を変えろ。`,
           },
         ]);
       }
