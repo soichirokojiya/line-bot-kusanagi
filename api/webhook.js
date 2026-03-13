@@ -1,5 +1,5 @@
 const { validateSignature, replyMessage, pushMessage, getBotProfile } = require("../lib/line");
-const { findVendors, searchKnowledge } = require("../lib/sheets");
+const { findVendors, getAllKnowledge } = require("../lib/sheets");
 const { askClaude } = require("../lib/claude");
 
 function getRawBody(req) {
@@ -51,14 +51,10 @@ async function handleQuery(query) {
     return { type: "vendor", vendors };
   }
 
-  // ベンダーにヒットしなければナレッジ検索 → Claude回答
-  const knowledge = await searchKnowledge(query);
-  if (knowledge.length > 0) {
-    const answer = await askClaude(query, knowledge);
-    return { type: "knowledge", answer };
-  }
-
-  return { type: "none" };
+  // ベンダーにヒットしなければ全ナレッジをClaudeに渡して回答
+  const knowledge = await getAllKnowledge();
+  const answer = await askClaude(query, knowledge);
+  return { type: "knowledge", answer };
 }
 
 async function handler(req, res) {
