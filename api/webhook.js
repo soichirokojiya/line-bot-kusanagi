@@ -136,7 +136,7 @@ async function handleEvent(event) {
   // グループの場合: 「草薙」で始まるメッセージに反応
   if (source.type === "group") {
     const text = message.text.trim();
-    const trigger = /^草薙\s*/i;
+    const trigger = /^kusanagi\s*/i;
     if (!trigger.test(text)) return;
 
     const query = text.replace(trigger, "").trim();
@@ -145,7 +145,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: "ベンダー名を言え。\n例: 草薙 アマゾン",
+          text: "ベンダー名を言え。\n例: kusanagi アマゾン",
         },
       ]);
       return;
