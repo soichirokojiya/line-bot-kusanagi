@@ -53,7 +53,12 @@ async function handleQuery(query) {
 
   // ベンダーにヒットしなければ全ナレッジをClaudeに渡して回答
   const knowledge = await getAllKnowledge();
+  console.log("Knowledge entries:", knowledge.length);
+  if (knowledge.length === 0) {
+    console.log("No knowledge found in sheet");
+  }
   const answer = await askClaude(query, knowledge);
+  console.log("Claude answer:", answer);
   return { type: "knowledge", answer };
 }
 
