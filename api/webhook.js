@@ -187,18 +187,9 @@ async function handleEvent(event) {
         await replyMessage(replyToken, [
           {
             type: "text",
-            text: `${formatVendorListPublic(result.vendors)}\n\nパスワードは個別に送った。ここでは晒さない。`,
+            text: `${formatVendorList(result.vendors)}\n\n取り扱いには気をつけろ。`,
           },
         ]);
-
-        if (source.userId) {
-          await pushMessage(source.userId, [
-            {
-              type: "text",
-              text: `${formatPassList(result.vendors)}\n\n漏らすなよ。`,
-            },
-          ]);
-        }
       } else if (result.type === "knowledge") {
         await replyMessage(replyToken, [
           {
