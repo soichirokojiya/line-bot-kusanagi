@@ -170,6 +170,14 @@ async function handleEvent(event) {
 
     const query = text.replace(trigger, "").trim();
 
+    // グループID取得コマンド
+    if (query === "groupid" || query === "グループID") {
+      await replyMessage(replyToken, [
+        { type: "text", text: `このグループのID:\n${source.groupId}` },
+      ]);
+      return;
+    }
+
     if (!query) {
       await replyMessage(replyToken, [
         {
