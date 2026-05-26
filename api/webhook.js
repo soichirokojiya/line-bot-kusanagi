@@ -1,6 +1,14 @@
-const { validateSignature, replyMessage, pushMessage, getBotProfile } = require("../lib/line");
+const {
+  validateSignature,
+  replyMessage,
+  pushMessage,
+  getBotProfile,
+  getUserProfile,
+  getGroupMemberProfile,
+} = require("../lib/line");
 const { findVendors, getAllKnowledge } = require("../lib/sheets");
 const { askClaude } = require("../lib/claude");
+const { submitDiary } = require("../lib/diary");
 
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -116,6 +124,45 @@ async function handler(req, res) {
   }
 }
 
+// "日報 ..." / "報告 ..." / 全角スペース混じりにも対応
+const DIARY_RE = /^(?:日報|報告)[\s　]+([\s\S]+)$/;
+// グループ用: "kusanagi 日報 ..." / "kusanagi 報告 ..."
+const DIARY_GROUP_RE = /^kusanagi[\s　]+(?:日報|報告)[\s　]+([\s\S]+)$/i;
+
+async function handleDiary({ lineUserId, displayName, rawInput, replyToken }) {
+  if (!rawInput) {
+    await replyMessage(replyToken, [
+      {
+        type: "text",
+        text:
+          "用件を言え。\n例: 日報 今日 MINAWA で清掃と朝食。8時から13時。IH壊れた。\n\n書式自由。施設(MINAWA/THERM)、作業内容、時間、困りごとを含めろ。",
+      },
+    ]);
+    return;
+  }
+  try {
+    const result = await submitDiary({ lineUserId, displayName, rawInput });
+    const summary = result.summary || "記録のみ";
+    const linkHint = result.bound_to_staff
+      ? ""
+      : "\n(まだスタッフに紐付いていない。管理画面で line_user_id を hr_staff に登録しろ。)";
+    await replyMessage(replyToken, [
+      {
+        type: "text",
+        text: `${summary}\n\n記録した。誤りがあれば管理画面で直せ。${linkHint}`,
+      },
+    ]);
+  } catch (err) {
+    console.error("Diary submit error:", err.message, err.stack);
+    await replyMessage(replyToken, [
+      {
+        type: "text",
+        text: `日報の記録に失敗した。……よくあることだ。\n${err.message}`,
+      },
+    ]);
+  }
+}
+
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
@@ -123,7 +170,23 @@ async function handleEvent(event) {
 
   // 1対1チャットの場合: そのまま検索
   if (source.type === "user") {
-    const query = message.text.trim();
+    const text = message.text.trim();
+
+    // 日報モード
+    const diaryMatch = text.match(DIARY_RE);
+    if (diaryMatch || /^(?:日報|報告)$/.test(text)) {
+      const raw = diaryMatch?.[1] ?? "";
+      const profile = await getUserProfile(source.userId).catch(() => ({}));
+      await handleDiary({
+        lineUserId: source.userId,
+        displayName: profile.displayName || "",
+        rawInput: raw,
+        replyToken,
+      });
+      return;
+    }
+
+    const query = text;
 
     try {
       const result = await handleQuery(query);
@@ -168,6 +231,23 @@ async function handleEvent(event) {
     const trigger = /^kusanagi\s*/i;
     if (!trigger.test(text)) return;
 
+    // 日報モード (グループ): "kusanagi 日報 ..."
+    const diaryGroup = text.match(DIARY_GROUP_RE);
+    if (diaryGroup || /^kusanagi[\s　]+(?:日報|報告)$/i.test(text)) {
+      const raw = diaryGroup?.[1] ?? "";
+      const profile = await getGroupMemberProfile(
+        source.groupId,
+        source.userId
+      ).catch(() => ({}));
+      await handleDiary({
+        lineUserId: source.userId,
+        displayName: profile.displayName || "",
+        rawInput: raw,
+        replyToken,
+      });
+      return;
+    }
+
     const query = text.replace(trigger, "").trim();
 
     // グループID取得コマンド
@@ -182,7 +262,7 @@ async function handleEvent(event) {
       await replyMessage(replyToken, [
         {
           type: "text",
-          text: "用件を言え。\n例: kusanagi アマゾン\n例: kusanagi 有給の申請方法は？",
+          text: "用件を言え。\n例: kusanagi アマゾン\n例: kusanagi 有給の申請方法は？\n例: kusanagi 日報 今日 MINAWA で清掃 8時〜13時",
         },
       ]);
       return;
