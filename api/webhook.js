@@ -8,6 +8,7 @@ const {
 } = require("../lib/line");
 const { findVendors } = require("../lib/sheets");
 const { getAllKnowledge } = require("../lib/knowledge");
+const { askBookings } = require("../lib/bookings");
 const { askClaude } = require("../lib/claude");
 const { submitDiary } = require("../lib/diary");
 const { requestReceipt } = require("../lib/receipt");
@@ -69,7 +70,11 @@ function formatPassList(vendors) {
 }
 
 // ベンダー検索 or RAG回答を処理
-async function handleQuery(query) {
+async function handleQuery(query, { lineUserId, groupId } = {}) {
+  // 予約・空き・料金は Beds24 を直接見る (スタッフのみ)。無関係な質問は handled:false で下に流れる
+  const booking = await askBookings({ lineUserId, groupId, question: query });
+  if (booking.handled) return { type: "knowledge", answer: booking.answer };
+
   // まずベンダー検索 (id_pass)。シート鍵が失われていて止まっているので、失敗してもナレッジ回答に進む
   const vendors = await findVendors(query).catch((err) => {
     console.warn("findVendors skipped:", err.message);
@@ -241,7 +246,7 @@ async function handleEvent(event) {
     const query = text;
 
     try {
-      const result = await handleQuery(query);
+      const result = await handleQuery(query, { lineUserId: source.userId });
 
       if (result.type === "vendor") {
         await replyMessage(replyToken, [
@@ -338,7 +343,7 @@ async function handleEvent(event) {
     }
 
     try {
-      const result = await handleQuery(query);
+      const result = await handleQuery(query, { lineUserId: source.userId, groupId: source.groupId });
 
       if (result.type === "vendor") {
         await replyMessage(replyToken, [
