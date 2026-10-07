@@ -178,10 +178,13 @@ async function handleReceipt({ lineUserId, groupId, displayName, rawInput, reply
   }
   try {
     const result = await requestReceipt({ lineUserId, groupId, displayName, rawInput });
+    const driveNote = result.drive_saved === false
+      ? `\n\n※ドライブへの保管に失敗した。PDFは控えておけ。(${result.drive_error})`
+      : "";
     await replyMessage(replyToken, [
       {
         type: "text",
-        text: `${result.summary}\n\n発行した。PDFはここだ (7日間有効):\n${result.url}\n\n誤りがあれば書き直して送れ。番号は新しく振る。`,
+        text: `${result.summary}\n\n発行した。PDFはここだ (7日間有効):\n${result.url}\n\n誤りがあれば書き直して送れ。番号は新しく振る。${driveNote}`,
       },
     ]);
   } catch (err) {
