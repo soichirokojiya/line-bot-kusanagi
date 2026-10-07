@@ -9,6 +9,7 @@ const {
 const { findVendors, getAllKnowledge } = require("../lib/sheets");
 const { askClaude } = require("../lib/claude");
 const { submitDiary } = require("../lib/diary");
+const { requestReceipt } = require("../lib/receipt");
 
 function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -163,6 +164,37 @@ async function handleDiary({ lineUserId, displayName, rawInput, replyToken }) {
   }
 }
 
+// "領収書 ..." (DM) / "kusanagi 領収書 ..." (グループ)。改行区切りの項目書きでもよい
+const RECEIPT_RE = /^領収書[\s　]+([\s\S]+)$/;
+const RECEIPT_GROUP_RE = /^kusanagi[\s　]+領収書[\s　]+([\s\S]+)$/i;
+
+const RECEIPT_USAGE =
+  "書式はこうだ。\n\nkusanagi 領収書\n日付：10月6日\n金額：44,000円\n宛名：JOYコミュニケーションズ株式会社\n但書：4名様 宿泊代\n施設：VILLA MINAWA\n支払方法：現金\n\n金額と宛名は必須。日付を省けば今日、但書を省けば「ご宿泊代」になる。";
+
+async function handleReceipt({ lineUserId, groupId, displayName, rawInput, replyToken }) {
+  if (!rawInput) {
+    await replyMessage(replyToken, [{ type: "text", text: RECEIPT_USAGE }]);
+    return;
+  }
+  try {
+    const result = await requestReceipt({ lineUserId, groupId, displayName, rawInput });
+    await replyMessage(replyToken, [
+      {
+        type: "text",
+        text: `${result.summary}\n\n発行した。PDFはここだ (7日間有効):\n${result.url}\n\n誤りがあれば書き直して送れ。番号は新しく振る。`,
+      },
+    ]);
+  } catch (err) {
+    console.error("Receipt error:", err.message, err.stack);
+    await replyMessage(replyToken, [
+      {
+        type: "text",
+        text: `領収書は発行していない。\n${err.message}\n\n${RECEIPT_USAGE}`,
+      },
+    ]);
+  }
+}
+
 async function handleEvent(event) {
   if (event.type !== "message" || event.message.type !== "text") return;
 
@@ -181,6 +213,19 @@ async function handleEvent(event) {
         lineUserId: source.userId,
         displayName: profile.displayName || "",
         rawInput: raw,
+        replyToken,
+      });
+      return;
+    }
+
+    // 領収書モード
+    const receiptMatch = text.match(RECEIPT_RE);
+    if (receiptMatch || text === "領収書") {
+      const profile = await getUserProfile(source.userId).catch(() => ({}));
+      await handleReceipt({
+        lineUserId: source.userId,
+        displayName: profile.displayName || "",
+        rawInput: receiptMatch?.[1]?.trim() ?? "",
         replyToken,
       });
       return;
@@ -243,6 +288,23 @@ async function handleEvent(event) {
         lineUserId: source.userId,
         displayName: profile.displayName || "",
         rawInput: raw,
+        replyToken,
+      });
+      return;
+    }
+
+    // 領収書モード (グループ): "kusanagi 領収書 ..."
+    const receiptGroup = text.match(RECEIPT_GROUP_RE);
+    if (receiptGroup || /^kusanagi[\s　]+領収書$/i.test(text)) {
+      const profile = await getGroupMemberProfile(
+        source.groupId,
+        source.userId
+      ).catch(() => ({}));
+      await handleReceipt({
+        lineUserId: source.userId,
+        groupId: source.groupId,
+        displayName: profile.displayName || "",
+        rawInput: receiptGroup?.[1]?.trim() ?? "",
         replyToken,
       });
       return;
