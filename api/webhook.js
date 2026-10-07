@@ -6,7 +6,8 @@ const {
   getUserProfile,
   getGroupMemberProfile,
 } = require("../lib/line");
-const { findVendors, getAllKnowledge } = require("../lib/sheets");
+const { findVendors } = require("../lib/sheets");
+const { getAllKnowledge } = require("../lib/knowledge");
 const { askClaude } = require("../lib/claude");
 const { submitDiary } = require("../lib/diary");
 const { requestReceipt } = require("../lib/receipt");
@@ -69,8 +70,11 @@ function formatPassList(vendors) {
 
 // ベンダー検索 or RAG回答を処理
 async function handleQuery(query) {
-  // まずベンダー検索
-  const vendors = await findVendors(query);
+  // まずベンダー検索 (id_pass)。シート鍵が失われていて止まっているので、失敗してもナレッジ回答に進む
+  const vendors = await findVendors(query).catch((err) => {
+    console.warn("findVendors skipped:", err.message);
+    return [];
+  });
   if (vendors.length > 0) {
     return { type: "vendor", vendors };
   }
