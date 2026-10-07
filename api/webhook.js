@@ -169,7 +169,7 @@ const RECEIPT_RE = /^領収書[\s　]+([\s\S]+)$/;
 const RECEIPT_GROUP_RE = /^kusanagi[\s　]+領収書[\s　]+([\s\S]+)$/i;
 
 const RECEIPT_USAGE =
-  "書式はこうだ。\n\nkusanagi 領収書\n日付：10月6日\n金額：44,000円\n宛名：JOYコミュニケーションズ株式会社\n但書：4名様 宿泊代\n施設：VILLA MINAWA\n支払方法：現金\n\n金額と宛名は必須。日付を省けば今日、但書を省けば「ご宿泊代」になる。";
+  "書式はこうだ。\n\nkusanagi 領収書\n日付：10月6日\n金額：44,000円\n宛名：JOYコミュニケーションズ株式会社\n但書：4名様 宿泊代\n施設：VILLA MINAWA\n支払方法：現金\n\n金額と宛名は必須。施設は但書の後ろに「宿泊代(VILLA MINAWA)」の形で入る。日付を省けば今日、但書を省けば「ご宿泊代」になる。";
 
 async function handleReceipt({ lineUserId, groupId, displayName, rawInput, replyToken }) {
   if (!rawInput) {
