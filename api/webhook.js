@@ -174,8 +174,13 @@ async function handleDiary({ lineUserId, displayName, rawInput, replyToken }) {
 }
 
 // "領収書 ..." (DM) / "kusanagi 領収書 ..." (グループ)。改行区切りの項目書きでもよい
-const RECEIPT_RE = /^領収書[\s　]+([\s\S]+)$/;
-const RECEIPT_GROUP_RE = /^kusanagi[\s　]+領収書[\s　]+([\s\S]+)$/i;
+// 「領収書」が文中のどこかにあれば領収書の依頼とみなす (「加来さんに領収書の発行をお願いいたします」も拾う)。
+// 先頭の「kusanagi」「領収書」を外した残りを依頼文として villa-system に渡す。空なら書式を案内する
+function receiptRequest(text) {
+  const body = text.replace(/^kusanagi[\s　]*/i, "");
+  if (!/領収書/.test(body)) return null;
+  return body.replace(/^領収書[\s　]*/, "").trim();
+}
 
 const RECEIPT_USAGE =
   "書式はこうだ。\n\nkusanagi 領収書\n日付：10月6日\n金額：44,000円\n宛名：JOYコミュニケーションズ株式会社\n但書：4名様 宿泊代\n施設：VILLA MINAWA\n支払方法：現金\n\n金額と宛名は必須。施設は但書の後ろに「宿泊代(VILLA MINAWA)」の形で入る。日付を省けば今日、但書を省けば「ご宿泊代」になる。";
@@ -187,6 +192,11 @@ async function handleReceipt({ lineUserId, groupId, displayName, rawInput, reply
   }
   try {
     const result = await requestReceipt({ lineUserId, groupId, displayName, rawInput });
+    // 金額などが足りないときは発行せず聞き返す (Square の請求書から下書きを出すこともある)
+    if (result.issued === false) {
+      await replyMessage(replyToken, [{ type: "text", text: result.message }]);
+      return;
+    }
     const driveNote = result.drive_saved === false
       ? `\n\n※ドライブへの保管に失敗した。PDFは控えておけ。(${result.drive_error})`
       : "";
@@ -231,13 +241,13 @@ async function handleEvent(event) {
     }
 
     // 領収書モード
-    const receiptMatch = text.match(RECEIPT_RE);
-    if (receiptMatch || text === "領収書") {
+    const receiptRaw = receiptRequest(text);
+    if (receiptRaw !== null) {
       const profile = await getUserProfile(source.userId).catch(() => ({}));
       await handleReceipt({
         lineUserId: source.userId,
         displayName: profile.displayName || "",
-        rawInput: receiptMatch?.[1]?.trim() ?? "",
+        rawInput: receiptRaw,
         replyToken,
       });
       return;
@@ -306,8 +316,8 @@ async function handleEvent(event) {
     }
 
     // 領収書モード (グループ): "kusanagi 領収書 ..."
-    const receiptGroup = text.match(RECEIPT_GROUP_RE);
-    if (receiptGroup || /^kusanagi[\s　]+領収書$/i.test(text)) {
+    const receiptRaw = receiptRequest(text);
+    if (receiptRaw !== null) {
       const profile = await getGroupMemberProfile(
         source.groupId,
         source.userId
@@ -316,7 +326,7 @@ async function handleEvent(event) {
         lineUserId: source.userId,
         groupId: source.groupId,
         displayName: profile.displayName || "",
-        rawInput: receiptGroup?.[1]?.trim() ?? "",
+        rawInput: receiptRaw,
         replyToken,
       });
       return;
