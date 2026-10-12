@@ -6,10 +6,7 @@ const {
   getUserProfile,
   getGroupMemberProfile,
 } = require("../lib/line");
-const { findVendors } = require("../lib/sheets");
-const { getAllKnowledge } = require("../lib/knowledge");
-const { askBookings } = require("../lib/bookings");
-const { askClaude } = require("../lib/claude");
+const { askAgent, invoiceCancelNumber, cancelInvoice } = require("../lib/ask");
 const { submitDiary } = require("../lib/diary");
 const { requestReceipt } = require("../lib/receipt");
 
@@ -71,28 +68,22 @@ function formatPassList(vendors) {
 
 // ベンダー検索 or RAG回答を処理
 async function handleQuery(query, { lineUserId, groupId } = {}) {
-  // 予約・空き・料金は Beds24 を直接見る (スタッフのみ)。無関係な質問は handled:false で下に流れる
-  const booking = await askBookings({ lineUserId, groupId, question: query });
-  if (booking.handled) return { type: "knowledge", answer: booking.answer };
-
-  // まずベンダー検索 (id_pass)。シート鍵が失われていて止まっているので、失敗してもナレッジ回答に進む
-  const vendors = await findVendors(query).catch((err) => {
-    console.warn("findVendors skipped:", err.message);
-    return [];
-  });
-  if (vendors.length > 0) {
-    return { type: "vendor", vendors };
-  }
-
-  // ベンダーにヒットしなければ全ナレッジをClaudeに渡して回答
-  const knowledge = await getAllKnowledge();
-  console.log("Knowledge entries:", knowledge.length);
-  if (knowledge.length === 0) {
-    console.log("No knowledge found in sheet");
-  }
-  const answer = await askClaude(query, knowledge);
-  console.log("Claude answer:", answer);
+  // 質問の振り分けは villa-system のエージェントに任せる (Beds24 / Square / ナレッジを道具として選ぶ)。
+  // 以前はキーワードの決め打ちで、想定外の頼み方が全部ナレッジに落ちて「わからない」になっていた
+  const answer = await askAgent({ lineUserId, groupId, question: query });
   return { type: "knowledge", answer };
+}
+
+async function handleInvoiceCancel({ lineUserId, groupId, displayName, invoiceNumber, replyToken }) {
+  try {
+    const answer = await cancelInvoice({ lineUserId, groupId, displayName, invoiceNumber });
+    await replyMessage(replyToken, [{ type: "text", text: answer }]);
+  } catch (err) {
+    console.error("Invoice cancel error:", err.message, err.stack);
+    await replyMessage(replyToken, [
+      { type: "text", text: `請求書は取り消していない。……障害だ。\n${err.message}` },
+    ]);
+  }
 }
 
 async function handler(req, res) {
@@ -241,6 +232,18 @@ async function handleEvent(event) {
     }
 
     // 領収書モード
+    const cancelNo = invoiceCancelNumber(text);
+    if (cancelNo) {
+      const profile = await getUserProfile(source.userId).catch(() => ({}));
+      await handleInvoiceCancel({
+        lineUserId: source.userId,
+        displayName: profile.displayName || "",
+        invoiceNumber: cancelNo,
+        replyToken,
+      });
+      return;
+    }
+
     const receiptRaw = receiptRequest(text);
     if (receiptRaw !== null) {
       const profile = await getUserProfile(source.userId).catch(() => ({}));
@@ -316,6 +319,19 @@ async function handleEvent(event) {
     }
 
     // 領収書モード (グループ): "kusanagi 領収書 ..."
+    const cancelNo = invoiceCancelNumber(text);
+    if (cancelNo) {
+      const profile = await getGroupMemberProfile(source.groupId, source.userId).catch(() => ({}));
+      await handleInvoiceCancel({
+        lineUserId: source.userId,
+        groupId: source.groupId,
+        displayName: profile.displayName || "",
+        invoiceNumber: cancelNo,
+        replyToken,
+      });
+      return;
+    }
+
     const receiptRaw = receiptRequest(text);
     if (receiptRaw !== null) {
       const profile = await getGroupMemberProfile(
