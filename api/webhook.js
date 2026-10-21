@@ -6,7 +6,7 @@ const {
   getUserProfile,
   getGroupMemberProfile,
 } = require("../lib/line");
-const { askAgent, invoiceCancelNumber, cancelInvoice } = require("../lib/ask");
+const { askAgent, invoiceCancelNumber, cancelInvoice, ALERT_TARGET_RE, setAlertTarget } = require("../lib/ask");
 const { submitDiary } = require("../lib/diary");
 const { requestReceipt } = require("../lib/receipt");
 
@@ -319,6 +319,22 @@ async function handleEvent(event) {
     }
 
     // 領収書モード (グループ): "kusanagi 領収書 ..."
+    if (ALERT_TARGET_RE.test(text)) {
+      const profile = await getGroupMemberProfile(source.groupId, source.userId).catch(() => ({}));
+      try {
+        const answer = await setAlertTarget({
+          lineUserId: source.userId,
+          groupId: source.groupId,
+          displayName: profile.displayName || "",
+        });
+        await replyMessage(replyToken, [{ type: "text", text: answer }]);
+      } catch (err) {
+        console.error("Alert target error:", err.message);
+        await replyMessage(replyToken, [{ type: "text", text: `送り先を登録できなかった。\n${err.message}` }]);
+      }
+      return;
+    }
+
     const cancelNo = invoiceCancelNumber(text);
     if (cancelNo) {
       const profile = await getGroupMemberProfile(source.groupId, source.userId).catch(() => ({}));
