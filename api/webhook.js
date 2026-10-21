@@ -6,7 +6,7 @@ const {
   getUserProfile,
   getGroupMemberProfile,
 } = require("../lib/line");
-const { askAgent, invoiceCancelNumber, cancelInvoice, ALERT_TARGET_RE, setAlertTarget } = require("../lib/ask");
+const { askAgent, invoiceCancelNumber, cancelInvoice, ALERT_TARGET_RE, ALERT_MENTION_RE, setAlertTarget } = require("../lib/ask");
 const { submitDiary } = require("../lib/diary");
 const { requestReceipt } = require("../lib/receipt");
 
@@ -319,13 +319,14 @@ async function handleEvent(event) {
     }
 
     // 領収書モード (グループ): "kusanagi 領収書 ..."
-    if (ALERT_TARGET_RE.test(text)) {
+    if (ALERT_TARGET_RE.test(text) || ALERT_MENTION_RE.test(text)) {
       const profile = await getGroupMemberProfile(source.groupId, source.userId).catch(() => ({}));
       try {
         const answer = await setAlertTarget({
           lineUserId: source.userId,
           groupId: source.groupId,
           displayName: profile.displayName || "",
+          mention: ALERT_MENTION_RE.test(text),
         });
         await replyMessage(replyToken, [{ type: "text", text: answer }]);
       } catch (err) {
